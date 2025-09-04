@@ -32,11 +32,22 @@
                                         {{ $t['company']['name'] ?? '' }}
                                     @endif
                                 </div>
+                                @if ($col === 'doing')
+                                    <div class="small text-muted mt-1">
+                                        <i class="fas fa-user-check mr-1"></i>
+                                        In progress by
+                                        <strong>
+                                            {{ $t['claimed_by']['name'] ?? ($t['last_moved_by']['name'] ?? '—') }}
+                                        </strong>
+                                    </div>
+                                @endif
+
                                 @if (!empty($t['description']))
                                     <div class="small mt-1">
                                         {{ \Illuminate\Support\Str::limit($t['description'], 140) }}
                                     </div>
                                 @endif
+
                             </div>
                         </div>
                     </div>

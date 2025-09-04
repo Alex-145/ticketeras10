@@ -48,4 +48,13 @@ class Ticket extends Model
     {
         return $this->image_path ? asset('storage/' . $this->image_path) : null;
     }
+    // app/Models/Ticket.php
+    public function claimedBy()
+    {
+        return $this->belongsTo(User::class, 'claimed_by');
+    }
+    public function lastMovedBy()
+    {
+        return $this->belongsTo(User::class, 'last_moved_by');
+    }
 }

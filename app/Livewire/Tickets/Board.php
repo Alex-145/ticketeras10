@@ -14,6 +14,8 @@ use Illuminate\Support\Str;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 use Livewire\WithFileUploads;
+use App\Events\TicketStatusChanged;
+
 
 #[Layout('layouts.app')]
 class Board extends Component
@@ -71,16 +73,29 @@ class Board extends Component
         $this->reload();
     }
 
+    private function rt(array $extra = []): array
+    {
+        return array_merge([
+            'comp'    => static::class,
+            'trace'   => $this->traceId ?? 'n/a',
+            'user_id' => auth()->id(),
+        ], $extra);
+    }
+
     private function reload(): void
     {
-        Log::info('Tickets.Board@reload:start', $this->ctx(['search' => $this->search]));
-        $rows = $this->tickets->searchBoard($this->search);
+        Log::channel('realtime')->info('Board@reload:start', $this->rt(['search' => $this->search]));
 
-        $this->todo  = $rows->where('status', 'todo')->values()->toArray();
-        $this->doing = $rows->where('status', 'doing')->values()->toArray();
-        $this->done  = $rows->where('status', 'done')->values()->toArray();
+        $query = Ticket::with(['applicant.company', 'claimedBy', 'lastMovedBy'])
+            // ... tu filtro existente ...
+            ->orderByDesc('id')
+            ->get();
 
-        Log::info('Tickets.Board@reload:end', $this->ctx([
+        $this->todo  = $query->where('status', 'todo')->values()->toArray();
+        $this->doing = $query->where('status', 'doing')->values()->toArray();
+        $this->done  = $query->where('status', 'done')->values()->toArray();
+
+        Log::channel('realtime')->info('Board@reload:end', $this->rt([
             'counts' => ['todo' => count($this->todo), 'doing' => count($this->doing), 'done' => count($this->done)]
         ]));
     }
@@ -187,15 +202,66 @@ class Board extends Component
         $this->dispatch('toast', type: 'success', message: 'Ticket created.');
         $this->reload();
     }
-
-    public function moveTicket(int $ticketId, string $toStatus): void
+    public function refreshBoard(): void
     {
-        if (!in_array($toStatus, ['todo', 'doing', 'done'], true)) return;
-        $t = Ticket::findOrFail($ticketId);
-        $t->status = $toStatus;
-        $t->save();
+        Log::channel('realtime')->info('Board@refreshBoard', $this->rt());
         $this->reload();
     }
+    public function moveTicket(int $ticketId, string $toStatus): void
+    {
+        Log::channel('realtime')->info('Board@moveTicket:start', $this->rt([
+            'ticket_id' => $ticketId,
+            'to' => $toStatus
+        ]));
+
+        if (!in_array($toStatus, ['todo', 'doing', 'done'], true)) {
+            Log::channel('realtime')->warning('Board@moveTicket:invalid', $this->rt(['to' => $toStatus]));
+            return;
+        }
+
+        $t = Ticket::findOrFail($ticketId);
+        $from = $t->status;
+
+        $t->last_moved_by = auth()->id();
+        $t->last_moved_at = now();
+
+        if ($toStatus === 'doing') {
+            $t->claimed_by = auth()->id();
+            $t->claimed_at = now();
+        }
+
+        $t->status = $toStatus;
+        $t->save();
+
+        Log::channel('realtime')->info('Board@moveTicket:saved', $this->rt([
+            'ticket_id' => $t->id,
+            'from' => $from,
+            'to' => $toStatus
+        ]));
+
+        // Notifica a otros navegadores (Reverb)
+        broadcast(new TicketStatusChanged(
+            ticket: $t->fresh(['applicant.company', 'claimedBy', 'lastMovedBy']),
+            from: $from,
+            to: $toStatus,
+            byUserId: auth()->id(),
+            byName: auth()->user()?->name ?? 'Someone'
+        ))->toOthers();
+
+        Log::channel('realtime')->info('Board@moveTicket:broadcasted', $this->rt([
+            'ticket_id' => $t->id
+        ]));
+
+        $this->reload();
+    }
+    public function clientEvent(string $type, array $payload = []): void
+    {
+        Log::channel('realtime')->info('ClientEvent', $this->rt([
+            'type' => $type,
+            'payload' => $payload,
+        ]));
+    }
+
 
     private function resetCreateForm(): void
     {

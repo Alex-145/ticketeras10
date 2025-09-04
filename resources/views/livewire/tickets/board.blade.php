@@ -19,7 +19,16 @@
         function ticketBoard() {
             return {
                 draggingId: null,
-                boot() {},
+                boot() {
+                    if (window.Echo) {
+                        window.Echo.channel('tickets')
+                            .listen('.TicketStatusChanged', (e) => {
+                                // refresca livewire sin recargar
+                                this.$wire.refreshBoard();
+                            });
+                    }
+                },
+
                 onDragStart(evt, id) {
                     this.draggingId = id;
                     evt.dataTransfer.effectAllowed = 'move';
