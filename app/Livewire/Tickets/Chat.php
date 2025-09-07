@@ -24,16 +24,39 @@ class Chat extends Component
     /** @var array<int, \Livewire\Features\SupportFileUploads\TemporaryUploadedFile> */
     public array $uploads = [];
 
+    // Meta editables solo para staff:
+    public ?int $module_id = null;
+    public ?int $category_id = null;
+    public string $priority = 'normal';
+    public string $kind = 'consulta';
+
     public function mount(Ticket $ticket)
     {
-        $this->ticket = $ticket;
-        // Autorización básica (owner applicant o staff con rol)
-        $user = Auth::user();
-        abort_unless(
-            ($user?->hasRole('admin') || $user?->hasRole('agent'))
-                || (\App\Models\Applicant::where('user_id', $user?->id)->value('id') === $ticket->applicant_id),
-            403
-        );
+        $this->ticket = $ticket->loadMissing('applicant.company'); // 👈 traemos compañía del owner
+
+        $user = auth()->user();
+
+        // Applicant actual (si lo es)
+        $meApplicant = \App\Models\Applicant::with('company')
+            ->where('user_id', $user->id)
+            ->first();
+
+        $sameCompany = $meApplicant
+            && $this->ticket->applicant
+            && $meApplicant->company_id
+            && $meApplicant->company_id === $this->ticket->applicant->company_id;
+
+        $can =
+            $user->hasAnyRole(['admin', 'agent']) // staff
+            || $sameCompany;                     // applicants de la misma company
+
+        abort_unless($can, 403);
+
+        // precarga meta como ya lo tenías…
+        $this->module_id   = $this->ticket->module_id;
+        $this->category_id = $this->ticket->category_id;
+        $this->priority    = $this->ticket->priority ?? 'normal';
+        $this->kind        = $this->ticket->kind ?? 'consulta';
     }
 
     public function send()
@@ -43,32 +66,21 @@ class Chat extends Component
             'uploads.*' => ['image', 'mimes:jpg,jpeg,png,webp,gif', 'max:8192'],
         ]);
 
-
-        $user = Auth::user();
-        $applicant = Applicant::where('user_id', $user->id)->first();
-
+        $user = auth()->user();
+        $applicant = \App\Models\Applicant::where('user_id', $user->id)->first();
         $senderType = $applicant ? 'applicant' : 'staff';
         $senderId   = $applicant ? $applicant->id : $user->id;
-        Log::info('Chat@send: creating message', [
-            'ticket_id' => $this->ticket->id,
-            'user_id'   => auth()->id(),
-        ]);
 
-        $msg = TicketMessage::create([
+        $msg = \App\Models\TicketMessage::create([
             'ticket_id'   => $this->ticket->id,
             'sender_type' => $senderType,
             'sender_id'   => $senderId,
             'body'        => $this->message ?: null,
         ]);
 
-        Log::info('Chat@send: broadcasting event', [
-            'message_id' => $msg->id,
-            'socket_id'  => request()->header('X-Socket-Id'), // útil para ver si llega
-        ]);
-
         foreach ($this->uploads as $file) {
             $path = $file->store('tickets/' . $this->ticket->id, 'public');
-            TicketMessageAttachment::create([
+            \App\Models\TicketMessageAttachment::create([
                 'message_id'    => $msg->id,
                 'path'          => $path,
                 'original_name' => $file->getClientOriginalName(),
@@ -77,29 +89,78 @@ class Chat extends Component
             ]);
         }
 
-        // Broadcast
-        broadcast(new TicketMessageCreated($msg)); // <- sin toOthers() por ahora para ver en ambos tabs
+        // primera respuesta (si staff y aun no registrada)
+        if ($senderType === 'staff' && is_null($this->ticket->first_response_at)) {
+            $this->ticket->first_response_at = now();
+            $this->ticket->save();
+        }
 
-        // reset UI
+        // broadcast (dejas ShouldBroadcastNow en el evento)
+        broadcast(new \App\Events\TicketMessageCreated($msg))->toOthers();
+
         $this->message = '';
         $this->uploads = [];
         $this->dispatch('toast', type: 'success', message: 'Enviado');
     }
 
+    public function saveMeta()
+    {
+        // Solo staff:
+        abort_unless(auth()->user()->hasAnyRole(['admin', 'agent']), 403);
+
+        $this->validate([
+            'priority'    => ['required', 'in:low,normal,high,urgent'],
+            'kind'        => ['required', 'in:error,consulta,capacitacion'],
+            'module_id'   => ['nullable', 'integer', 'exists:modules,id'],
+            'category_id' => ['nullable', 'integer', 'exists:categories,id'],
+        ]);
+
+        $this->ticket->forceFill([
+            'priority'    => $this->priority,
+            'kind'        => $this->kind,
+            'module_id'   => $this->module_id,
+            'category_id' => $this->category_id,
+            'last_moved_by' => auth()->id(),
+            'last_moved_at' => now(),
+        ])->save();
+
+        $this->dispatch('toast', type: 'success', message: 'Metadatos actualizados.');
+    }
+    public function resolve()
+    {
+        abort_unless(auth()->user()->hasAnyRole(['admin', 'agent']), 403);
+
+        $this->ticket->forceFill([
+            'status' => 'done',
+            'last_moved_by' => auth()->id(),
+            'last_moved_at' => now(),
+        ])->save();
+
+        // Si ya tienes un canal/evento para estados, dispara aquí (ejemplo):
+        // broadcast(new \App\Events\TicketStatusChanged($this->ticket))->toOthers();
+
+        $this->dispatch('toast', type: 'success', message: 'Ticket resuelto.');
+    }
     // para recibir desde Echo
     public function messageArrived($payload)
     {
-        // no necesitamos estado local; haremos lazy refresh
         $this->dispatch('$refresh');
     }
 
+
     public function render()
     {
-        $messages = $this->ticket->messages()
-            ->with('attachments')
-            ->orderBy('created_at')
-            ->get();
+        $messages = $this->ticket->messages()->with('attachments')->orderBy('created_at')->get();
 
-        return view('livewire.tickets.chat', compact('messages'));
+        // métricas
+        $firstResponseAt = $this->ticket->first_response_at
+            ?? $this->ticket->messages()->where('sender_type', 'staff')->min('created_at');
+        $elapsed = now()->diffForHumans($this->ticket->created_at, ['parts' => 3, 'short' => true]); // ej: 1h 3m
+
+        return view('livewire.tickets.chat', [
+            'messages' => $messages,
+            'firstResponseAt' => $firstResponseAt,
+            'elapsed' => $elapsed,
+        ]);
     }
 }

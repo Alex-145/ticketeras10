@@ -1,23 +1,43 @@
 <?php
+// routes/channels.php
 
+use App\Models\Ticket;
+use App\Models\Applicant;
 use Illuminate\Support\Facades\Broadcast;
+use Illuminate\Support\Facades\Log;
 
 Broadcast::channel('tickets.{ticketId}', function ($user, $ticketId) {
-    $ticket = \App\Models\Ticket::find($ticketId);
-    if (!$ticket) return false;
-
-    // Staff autenticado (admin o agent)
-    if (method_exists($user, 'hasRole') && ($user->hasRole('admin') || $user->hasRole('agent'))) {
-        return ['id' => $user->id, 'name' => $user->name];
+    $ticket = Ticket::with('applicant.company')->find($ticketId);
+    if (!$ticket) {
+        Log::warning('channels:tickets auth - ticket not found', ['ticketId' => $ticketId]);
+        return false;
     }
 
-    // Applicant dueño del ticket
-    if ($ticket->applicant_id && $user) {
-        $applicant = \App\Models\Applicant::where('user_id', $user->id)->first();
-        if ($applicant && $applicant->id == $ticket->applicant_id) {
-            return ['id' => $user->id, 'name' => $user->name];
-        }
+    // Staff siempre entra
+    if ($user->hasAnyRole(['admin', 'agent'])) {
+        return ['id' => $user->id, 'type' => 'staff'];
     }
+
+    // Applicant por misma compañía
+    $meApplicant = Applicant::with('company')->where('user_id', $user->id)->first();
+    if (!$meApplicant) {
+        Log::info('channels:tickets auth - not applicant', ['user_id' => $user->id]);
+        return false;
+    }
+
+    $sameCompany = $ticket->applicant
+        && $meApplicant->company_id
+        && $meApplicant->company_id === $ticket->applicant->company_id;
+
+    if ($sameCompany) {
+        return ['id' => $meApplicant->id, 'type' => 'applicant'];
+    }
+
+    Log::info('channels:tickets auth - different company', [
+        'user_applicant_id' => $meApplicant->id ?? null,
+        'user_company_id'   => $meApplicant->company_id ?? null,
+        'ticket_company_id' => $ticket->applicant->company_id ?? null,
+    ]);
 
     return false;
 });
