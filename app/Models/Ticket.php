@@ -57,4 +57,9 @@ class Ticket extends Model
     {
         return $this->belongsTo(User::class, 'last_moved_by');
     }
+
+    public function messages()
+    {
+        return $this->hasMany(\App\Models\TicketMessage::class);
+    }
 }

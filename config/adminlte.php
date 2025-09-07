@@ -327,6 +327,12 @@ return [
             'active' => ['agents', 'agents/*'],
         ],
         [
+            'text'   => 'My Tickets',
+            'route'  => 'portal.tickets.create',
+            'icon'   => 'fas fa-fw fa-paper-plane',
+        ],
+
+        [
             'text' => 'pages',
             'url' => 'admin/pages',
             'icon' => 'far fa-fw fa-file',
