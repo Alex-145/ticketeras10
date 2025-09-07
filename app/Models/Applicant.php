@@ -9,7 +9,13 @@ class Applicant extends Model
 {
     use SoftDeletes;
 
-    protected $fillable = ['name', 'phone', 'company_id'];
+    protected $fillable = [
+        'name',
+        'phone',
+        'company_id',
+        'email',
+        'user_id',
+    ];
 
     public function company()
     {
@@ -18,5 +24,9 @@ class Applicant extends Model
     public function aliases()
     {
         return $this->hasMany(\App\Models\ApplicantAlias::class);
+    }
+    public function user()
+    {
+        return $this->belongsTo(User::class);
     }
 }

@@ -17,6 +17,7 @@ Route::middleware([
 });
 
 Route::middleware(['auth', 'verified'])->group(function () {
+    Route::get('/agents', fn() => view('agents.index'))->name('agents.index');
     Route::get('/companies', fn() => view('companies.index'))->name('companies.index');
     Route::get('/modules', fn() => view('modules.index'))->name('modules.index');
     Route::get('/categories', fn() => view('categories.index'))->name('categories.index');

@@ -5,6 +5,9 @@ namespace App\Livewire\Applicants;
 use App\Models\Applicant;
 use App\Models\ApplicantAlias;
 use App\Models\Company;
+use App\Models\User;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
@@ -15,50 +18,85 @@ class Index extends Component
 {
     use WithPagination;
 
-    // --- NUEVAS props (encima o debajo de las existentes) ---
+    // Context menu / Aliases modal
     public bool $showAliasModal = false;
     public ?int $aliasApplicantId = null;
     /** @var array<int, array{id:int|null, alias:string|null}> */
-    public array $aliasItems = []; // filas de alias (id + alias)
-    // List
+    public array $aliasItems = [];
+
+    // List / sorting / filters
     public string $search = '';
     public int $perPage = 10;
     public string $sortField = 'name';
     public string $sortDirection = 'asc';
 
-    // Form
+    // Form (create/edit)
     public ?int $editingId = null;
     public string $name = '';
-    public string $phone_code = '+51';   // prefijo editable
-    public ?string $phone = null;        // número sin prefijo
+    public string $email = '';
+    public string $phone_code = '+51';
+    public ?string $phone = null;
     public ?int $company_id = null;
-    public array $aliases = [];          // NUEVO: lista de seudónimos
+    public array $aliases = [];
 
-    // UI
+    // Password controls
+    public bool $auto_password = false;     // crear: genera aleatoria si true
+    public bool $change_password = false;   // editar: habilita cambio
+    public string $password = '';
+    public string $password_confirmation = '';
+
+    // UI modals
     public bool $showFormModal = false;
     public bool $showDeleteModal = false;
     public ?int $deletingId = null;
 
-    protected function rules(): array
+    /* ---------------- Rules dinámicas ---------------- */
+
+    protected function baseRules(): array
     {
         return [
             'name'        => ['required', 'string', 'max:255'],
+            'email'       => [
+                'required',
+                'email',
+                'max:255',
+                Rule::unique('applicants', 'email')->ignore($this->editingId),
+            ],
             'phone_code'  => ['required', 'regex:/^\+\d{1,4}$/'],
             'phone'       => ['nullable', 'string', 'max:30'],
             'company_id'  => ['required', 'integer', 'exists:companies,id'],
 
-            // Aliases
-            'aliases'     => ['array', 'max:20'], // límite sano
-            'aliases.*'   => ['nullable', 'string', 'max:100', 'distinct'], // distinct en request
+            'aliases'     => ['array', 'max:20'],
+            'aliases.*'   => ['nullable', 'string', 'max:100', 'distinct'],
         ];
     }
 
-    /* ----- tabla helpers ----- */
-    public function updatingSearch()
+    protected function passwordRulesForSave(): array
+    {
+        $rules = [];
+
+        // Crear
+        if (is_null($this->editingId)) {
+            if (!$this->auto_password) {
+                $rules['password'] = ['required', 'string', 'min:8', 'confirmed'];
+            }
+        } else {
+            // Editar
+            if ($this->change_password) {
+                $rules['password'] = ['required', 'string', 'min:8', 'confirmed'];
+            }
+        }
+
+        return $rules;
+    }
+
+    /* --------------- Tabla helpers ------------------- */
+
+    public function updatingSearch(): void
     {
         $this->resetPage();
     }
-    public function updatingPerPage()
+    public function updatingPerPage(): void
     {
         $this->resetPage();
     }
@@ -73,7 +111,8 @@ class Index extends Component
         }
     }
 
-    /* ----- acciones ----- */
+    /* ---------------- Acciones ----------------------- */
+
     public function openCreate(): void
     {
         $this->resetForm();
@@ -86,9 +125,10 @@ class Index extends Component
 
         $this->editingId  = $a->id;
         $this->name       = $a->name;
+        $this->email      = (string)($a->email ?? '');
         $this->company_id = $a->company_id;
 
-        // Split teléfono a prefijo + número
+        // Teléfono: prefijo + número
         $this->phone_code = '+51';
         $this->phone      = $a->phone;
         if (is_string($a->phone) && preg_match('/^\s*(\+\d{1,4})\s*(.*)$/', $a->phone, $m)) {
@@ -96,20 +136,35 @@ class Index extends Component
             $this->phone      = $m[2] ?: null;
         }
 
-        // Cargar alias a array simple
+        // Aliases
         $this->aliases = $a->aliases->pluck('alias')->all();
+
+        // Password controls (editar)
+        $this->change_password = false;
+        $this->password = '';
+        $this->password_confirmation = '';
 
         $this->showFormModal = true;
     }
 
     public function save(): void
     {
-        $validated = $this->validate();
+        // Validación dinámica
+        $rules = array_merge($this->baseRules(), $this->passwordRulesForSave());
+        $validated = $this->validate($rules, [], [
+            'name' => 'nombre',
+            'email' => 'correo',
+            'phone_code' => 'código',
+            'phone' => 'teléfono',
+            'company_id' => 'empresa',
+            'password' => 'contraseña',
+        ]);
 
-        // Combinar prefijo + número para DB
+        // Combinar prefijo + número
         $validated['phone'] = trim($this->phone_code) . ' ' . trim((string)($validated['phone'] ?? ''));
         unset($validated['phone_code']);
 
+        // --- Crear/Actualizar Applicant
         if ($this->editingId) {
             $applicant = Applicant::findOrFail($this->editingId);
             $applicant->update($validated);
@@ -118,29 +173,64 @@ class Index extends Component
             $this->editingId = $applicant->id;
         }
 
-        // ---- SYNC de alias ----
-        // Normalizar: trim, remover vacíos, único (case-insensitive)
+        // --- Crear / Ligar User por email ---
+        $user = User::where('email', $this->email)->first();
+
+        if (!$user) {
+            $plainPassword = $this->auto_password
+                ? Str::password(12)
+                : $this->password;
+
+            $user = User::create([
+                'name'     => $this->name,
+                'email'    => $this->email,
+                'password' => Hash::make($plainPassword),
+            ]);
+
+            // (Opcional) podrías despachar un evento para mostrar la contraseña generada una sola vez.
+            if ($this->auto_password) {
+                $this->dispatch('toast', type: 'info', message: 'Se generó una contraseña aleatoria para el usuario.');
+            }
+        } else {
+            // Mantener sincronizado el nombre
+            if ($user->name !== $this->name) {
+                $user->forceFill(['name' => $this->name])->save();
+            }
+            // Cambiar contraseña si corresponde (editar)
+            if ($this->editingId && $this->change_password && filled($this->password)) {
+                $user->forceFill(['password' => Hash::make($this->password)])->save();
+            }
+        }
+
+        // Asignar rol applicant (idempotente)
+        if (!$user->hasRole('applicant')) {
+            $user->assignRole('applicant');
+        }
+
+        // Asociar applicant->user
+        if ($applicant->user_id !== $user->id) {
+            $applicant->user()->associate($user);
+            $applicant->save();
+        }
+
+        // ---- SYNC de aliases (igual que tu lógica) ----
         $incoming = collect($this->aliases)
             ->map(fn($a) => trim((string)$a))
             ->filter(fn($a) => $a !== '')
-            ->unique(function ($a) {
-                return mb_strtolower($a);
-            })
+            ->unique(fn($a) => mb_strtolower($a))
             ->values();
 
-        // Borrar los que ya no están
         $applicant->aliases()->whereNotIn('alias', $incoming)->delete();
 
-        // Crear los nuevos (idempotente gracias a unique en DB)
         foreach ($incoming as $alias) {
             ApplicantAlias::firstOrCreate([
                 'applicant_id' => $applicant->id,
                 'alias'        => $alias,
             ]);
         }
-        // ------------------------
+        // -----------------------------------------------
 
-        $this->dispatch('toast', type: 'success', message: 'Applicant saved.');
+        $this->dispatch('toast', type: 'success', message: 'Applicant guardado.');
         $this->showFormModal = false;
         $this->resetForm();
     }
@@ -155,7 +245,7 @@ class Index extends Component
     {
         if ($this->deletingId) {
             Applicant::whereKey($this->deletingId)->delete();
-            $this->dispatch('toast', type: 'success', message: 'Applicant deleted.');
+            $this->dispatch('toast', type: 'success', message: 'Applicant eliminado.');
         }
         $this->showDeleteModal = false;
         $this->deletingId = null;
@@ -171,7 +261,7 @@ class Index extends Component
     {
         if (isset($this->aliases[$i])) {
             unset($this->aliases[$i]);
-            $this->aliases = array_values($this->aliases); // reindex
+            $this->aliases = array_values($this->aliases);
         }
     }
 
@@ -179,10 +269,17 @@ class Index extends Component
     {
         $this->editingId  = null;
         $this->name       = '';
+        $this->email      = '';
         $this->phone_code = '+51';
         $this->phone      = null;
         $this->company_id = null;
-        $this->aliases    = ['']; // empieza con una fila
+        $this->aliases    = [''];
+
+        // Password controls
+        $this->auto_password = false;
+        $this->change_password = false;
+        $this->password = '';
+        $this->password_confirmation = '';
     }
 
     public function render()
@@ -191,13 +288,16 @@ class Index extends Component
             ->with('company')
             ->when($this->search !== '', function ($w) {
                 $term = '%' . $this->search . '%';
-                // Cambia ILIKE->LIKE si usas MySQL
                 $w->where('name', 'ILIKE', $term)
+                    ->orWhere('email', 'ILIKE', $term)
                     ->orWhere('phone', 'ILIKE', $term)
                     ->orWhereHas('company', fn($q) => $q->where('name', 'ILIKE', $term))
                     ->orWhereHas('aliases', fn($q) => $q->where('alias', 'ILIKE', $term));
             })
-            ->when(in_array($this->sortField, ['name', 'phone']), fn($q) => $q->orderBy($this->sortField, $this->sortDirection))
+            ->when(
+                in_array($this->sortField, ['name', 'phone', 'email']),
+                fn($q) => $q->orderBy($this->sortField, $this->sortDirection)
+            )
             ->when(
                 $this->sortField === 'company',
                 fn($q) =>
@@ -211,13 +311,14 @@ class Index extends Component
 
         return view('livewire.applicants.index', compact('rows', 'companies'));
     }
-    // --- ABRE modal y carga alias ---
+
+    /* --------------- Aliases modal ------------------- */
+
     public function openAliases(int $applicantId): void
     {
-        $app = \App\Models\Applicant::with('aliases')->findOrFail($applicantId);
+        $app = Applicant::with('aliases')->findOrFail($applicantId);
 
         $this->aliasApplicantId = $app->id;
-        // Cargar alias a array de edición (id + alias)
         $this->aliasItems = $app->aliases
             ->map(fn($a) => ['id' => $a->id, 'alias' => $a->alias])
             ->values()
@@ -230,13 +331,11 @@ class Index extends Component
         $this->showAliasModal = true;
     }
 
-    // --- Agregar fila de alias ---
     public function aliasAddRow(): void
     {
         $this->aliasItems[] = ['id' => null, 'alias' => null];
     }
 
-    // --- Quitar fila de alias por índice ---
     public function aliasRemoveRow(int $i): void
     {
         if (isset($this->aliasItems[$i])) {
@@ -245,7 +344,6 @@ class Index extends Component
         }
     }
 
-    // --- Guardar cambios de alias ---
     public function aliasSave(): void
     {
         $this->validate([
@@ -253,25 +351,23 @@ class Index extends Component
             'aliasItems.*.alias' => ['nullable', 'string', 'max:100'],
         ]);
 
-        $app = \App\Models\Applicant::with('aliases')->findOrFail($this->aliasApplicantId);
+        $app = Applicant::with('aliases')->findOrFail($this->aliasApplicantId);
 
-        // Normalizar: quitar vacíos, trim, únicos por case-insensitive
         $incoming = collect($this->aliasItems)
             ->map(fn($row) => ['id' => $row['id'], 'alias' => trim((string)($row['alias'] ?? ''))])
             ->filter(fn($row) => $row['alias'] !== '')
             ->unique(fn($row) => mb_strtolower($row['alias']))
             ->values();
 
-        // Eliminar todos y recrear (simple y seguro) — también puedes hacer diff si prefieres
         $app->aliases()->delete();
         foreach ($incoming as $row) {
-            \App\Models\ApplicantAlias::create([
+            ApplicantAlias::create([
                 'applicant_id' => $app->id,
                 'alias'        => $row['alias'],
             ]);
         }
 
-        $this->dispatch('toast', type: 'success', message: 'Aliases saved.');
+        $this->dispatch('toast', type: 'success', message: 'Aliases guardados.');
         $this->showAliasModal = false;
         $this->aliasApplicantId = null;
         $this->aliasItems = [];

@@ -1,7 +1,7 @@
 <div x-data="applicantsCtxMenu()" x-init="boot()">
     {{-- Toolbar --}}
     <div class="d-flex flex-wrap align-items-center mb-3">
-        <div class="input-group input-group-sm mr-2" style="max-width: 320px;">
+        <div class="input-group input-group-sm mr-2" style="max-width: 360px;">
             <div class="input-group-prepend">
                 <span class="input-group-text"><i class="fas fa-search"></i></span>
             </div>
@@ -35,6 +35,12 @@
                             <i class="fas fa-sort-{{ $sortDirection === 'asc' ? 'up' : 'down' }}"></i>
                         @endif
                     </th>
+                    <th wire:click="sortBy('email')" class="cursor-pointer">
+                        Email
+                        @if ($sortField === 'email')
+                            <i class="fas fa-sort-{{ $sortDirection === 'asc' ? 'up' : 'down' }}"></i>
+                        @endif
+                    </th>
                     <th wire:click="sortBy('phone')" class="cursor-pointer" style="width:180px;">
                         Phone
                         @if ($sortField === 'phone')
@@ -47,13 +53,14 @@
                             <i class="fas fa-sort-{{ $sortDirection === 'asc' ? 'up' : 'down' }}"></i>
                         @endif
                     </th>
-                    <th style="width:130px;" class="text-right">Actions</th>
+                    <th style="width:160px;" class="text-right">Actions</th>
                 </tr>
             </thead>
             <tbody>
                 @forelse ($rows as $item)
                     <tr @contextmenu.prevent="openRowMenu($event, {{ $item->id }})">
                         <td><strong>{{ $item->name }}</strong></td>
+                        <td>{{ $item->email }}</td>
                         <td>{{ $item->phone }}</td>
                         <td>{{ $item->company?->name }}</td>
                         <td class="text-right">
@@ -63,20 +70,23 @@
                             <button class="btn btn-danger btn-xs" wire:click="confirmDelete({{ $item->id }})">
                                 <i class="fas fa-trash"></i>
                             </button>
+                            <button class="btn btn-secondary btn-xs"
+                                @click="aliasesId={{ $item->id }};$wire.openAliases(aliasesId)">
+                                <i class="fas fa-user-secret"></i>
+                            </button>
                         </td>
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="4" class="text-center text-muted">No results.</td>
+                        <td colspan="5" class="text-center text-muted">No results.</td>
                     </tr>
                 @endforelse
             </tbody>
         </table>
     </div>
 
-    <div class="mt-2">
-        {{ $rows->onEachSide(1)->links() }}
-    </div>
+    <div class="mt-2">{{ $rows->onEachSide(1)->links() }}</div>
+
     {{-- Context Menu (tabla de applicants) --}}
     <div x-show="visible" x-transition class="dropdown-menu show shadow" :style="style" @click.away="close"
         @keydown.escape.window="close">
@@ -111,7 +121,7 @@
                     </button>
                 </div>
 
-                <form wire:submit.prevent="save">
+                <form wire:submit.prevent="save" x-data="{ showPass: false }">
                     <div class="modal-body">
                         @if ($errors->any())
                             <div class="alert alert-danger py-2">
@@ -128,10 +138,18 @@
                             </div>
 
                             <div class="form-group col-md-6">
+                                <label>Email <span class="text-danger">*</span></label>
+                                <input type="email" class="form-control" wire:model.defer="email"
+                                    placeholder="user@example.com">
+                                <div class="text-danger small"><x-input-error for="email" /></div>
+                            </div>
+
+                            <div class="form-group col-md-6">
                                 <label>Phone</label>
                                 <div class="input-group">
-                                    <input type="text" class="form-control" style="max-width: 90px; flex: 0 0 90px;"
-                                        wire:model.defer="phone_code" placeholder="+51">
+                                    <input type="text" class="form-control"
+                                        style="max-width: 90px; flex: 0 0 90px;" wire:model.defer="phone_code"
+                                        placeholder="+51">
                                     <input type="text" class="form-control" wire:model.defer="phone"
                                         placeholder="9xxxxxxxx">
                                 </div>
@@ -141,8 +159,7 @@
                                 </div>
                             </div>
 
-
-                            <div class="form-group col-md-12">
+                            <div class="form-group col-md-6">
                                 <label>Company <span class="text-danger">*</span></label>
                                 <select class="form-control" wire:model="company_id">
                                     <option value="">-- Select company --</option>
@@ -152,6 +169,99 @@
                                 </select>
                                 <div class="text-danger small"><x-input-error for="company_id" /></div>
                             </div>
+                        </div>
+
+                        {{-- Password block --}}
+                        <div class="border rounded p-2">
+                            @if (!$editingId)
+                                <div class="custom-control custom-switch mb-2">
+                                    <input type="checkbox" class="custom-control-input" id="autoPassSwitch"
+                                        wire:model="auto_password">
+                                    <label class="custom-control-label" for="autoPassSwitch">
+                                        Generar contraseña aleatoria
+                                    </label>
+                                </div>
+
+                                @if (!$auto_password)
+                                    <div class="form-row">
+                                        <div class="form-group col-md-6">
+                                            <label>Password <span class="text-danger">*</span></label>
+                                            <div class="input-group">
+                                                <input :type="showPass ? 'text' : 'password'" class="form-control"
+                                                    wire:model.defer="password" autocomplete="new-password">
+                                                <div class="input-group-append">
+                                                    <button type="button" class="btn btn-outline-secondary"
+                                                        @click="showPass=!showPass" tabindex="-1">
+                                                        <i class="far"
+                                                            :class="showPass ? 'fa-eye-slash' : 'fa-eye'"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="text-danger small"><x-input-error for="password" /></div>
+                                        </div>
+                                        <div class="form-group col-md-6">
+                                            <label>Confirm password <span class="text-danger">*</span></label>
+                                            <input :type="showPass ? 'text' : 'password'" class="form-control"
+                                                wire:model.defer="password_confirmation" autocomplete="new-password">
+                                        </div>
+                                    </div>
+                                @endif
+                            @else
+                                <div class="custom-control custom-switch mb-2">
+                                    <input type="checkbox" class="custom-control-input" id="changePassSwitch"
+                                        wire:model="change_password">
+                                    <label class="custom-control-label" for="changePassSwitch">
+                                        Cambiar contraseña
+                                    </label>
+                                </div>
+
+                                @if ($change_password)
+                                    <div class="form-row">
+                                        <div class="form-group col-md-6">
+                                            <label>New password <span class="text-danger">*</span></label>
+                                            <div class="input-group">
+                                                <input :type="showPass ? 'text' : 'password'" class="form-control"
+                                                    wire:model.defer="password" autocomplete="new-password">
+                                                <div class="input-group-append">
+                                                    <button type="button" class="btn btn-outline-secondary"
+                                                        @click="showPass=!showPass" tabindex="-1">
+                                                        <i class="far"
+                                                            :class="showPass ? 'fa-eye-slash' : 'fa-eye'"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="text-danger small"><x-input-error for="password" /></div>
+                                        </div>
+                                        <div class="form-group col-md-6">
+                                            <label>Confirm password <span class="text-danger">*</span></label>
+                                            <input :type="showPass ? 'text' : 'password'" class="form-control"
+                                                wire:model.defer="password_confirmation" autocomplete="new-password">
+                                        </div>
+                                    </div>
+                                @endif
+                            @endif
+                        </div>
+
+                        {{-- Aliases --}}
+                        <div class="mt-3">
+                            <label class="mb-1">Aliases</label>
+                            @foreach ($aliases as $i => $alias)
+                                <div class="input-group mb-2" wire:key="alias-inline-{{ $i }}">
+                                    <input type="text" class="form-control" placeholder="Alias"
+                                        wire:model.defer="aliases.{{ $i }}">
+                                    <div class="input-group-append">
+                                        <button type="button" class="btn btn-outline-danger"
+                                            wire:click="removeAliasRow({{ $i }})">
+                                            <i class="fas fa-times"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="text-danger small"><x-input-error for="aliases.{{ $i }}" />
+                                </div>
+                            @endforeach
+                            <button type="button" class="btn btn-outline-primary btn-sm" wire:click="addAliasRow">
+                                <i class="fas fa-plus"></i> Add alias
+                            </button>
                         </div>
                     </div>
 
@@ -185,9 +295,7 @@
                     </button>
                 </div>
 
-                <div class="modal-body">
-                    Are you sure you want to delete this record?
-                </div>
+                <div class="modal-body">Are you sure you want to delete this record?</div>
 
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary"
@@ -200,7 +308,8 @@
             </div>
         </div>
     </div>
-    {{-- Modal: Aliases del Applicant --}}
+
+    {{-- Modal: Aliases --}}
     <div class="modal fade @if ($showAliasModal) show d-block @endif" tabindex="-1" role="dialog"
         @if ($showAliasModal) style="background:rgba(0,0,0,.5);" @endif
         aria-hidden="{{ $showAliasModal ? 'false' : 'true' }}">
@@ -208,8 +317,7 @@
             <div class="modal-content" x-data="aliasesCtx()">
                 <div class="modal-header bg-secondary">
                     <h5 class="modal-title text-white mb-0">
-                        <i class="fas fa-user-secret mr-1"></i>
-                        Applicant Aliases
+                        <i class="fas fa-user-secret mr-1"></i> Applicant Aliases
                     </h5>
                     <button type="button" class="close text-white" aria-label="Close"
                         wire:click="$set('showAliasModal', false)">
@@ -276,7 +384,6 @@
             </div>
         </div>
     </div>
-
 </div>
 
 @push('js')
@@ -290,7 +397,7 @@
                 y: 0,
                 selectedId: null,
                 get style() {
-                    return `position:fixed; left:${this.x}px; top:${this.y}px; z-index: 1060;`;
+                    return `position:fixed; left:${this.x}px; top:${this.y}px; z-index:1060;`;
                 },
                 boot() {
                     window.addEventListener('scroll', () => this.close(), true);
@@ -337,7 +444,6 @@
                 },
             }
         }
-
         /* ---- Context menu dentro del modal de Aliases ---- */
         function aliasesCtx() {
             return {
@@ -346,7 +452,7 @@
                 y: 0,
                 index: null,
                 get style() {
-                    return `position:fixed; left:${this.x}px; top:${this.y}px; z-index: 1070;`;
+                    return `position:fixed; left:${this.x}px; top:${this.y}px; z-index:1070;`;
                 },
                 open(evt, i) {
                     this.index = i;
@@ -366,7 +472,6 @@
                     this.visible = false;
                 },
                 rename() {
-                    // Simple: enfocar input de la fila
                     this.$nextTick(() => {
                         const el = document.getElementById(`alias-input-${this.index}`);
                         if (el) {

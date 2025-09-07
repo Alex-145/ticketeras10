@@ -321,13 +321,19 @@ return [
             'can' => 'manage-blog',
         ],
         [
+            'text'   => 'Agents',
+            'route'  => 'agents.index',
+            'icon'   => 'fas fa-fw fa-user-tie',
+            'active' => ['agents', 'agents/*'],
+        ],
+        [
             'text' => 'pages',
             'url' => 'admin/pages',
             'icon' => 'far fa-fw fa-file',
             'label' => 4,
             'label_color' => 'success',
         ],
-        ['header' => 'business'],
+
         [
             'text'   => 'Tickets',
             'route'  => 'tickets.board',
@@ -335,31 +341,35 @@ return [
             'active' => ['tickets', 'tickets/*'],
         ],        // título de sección en la sidebar
         [
-            'text'   => 'Companies',
-            'route'  => 'companies.index', // usa la ruta que creamos
-            'icon'   => 'fas fa-fw fa-building',
-            'active' => ['companies', 'companies/*'], // resalta cuando estás en /companies
-            // 'can'  => 'companies.view',   // opcional si usas gates/roles
+            'text'    => 'Catalogs',
+            'icon'    => 'fas fa-fw fa-folder-open',
+            'submenu' => [
+                [
+                    'text'   => 'Applicants',
+                    'route'  => 'applicants.index',
+                    'icon'   => 'fas fa-fw fa-user-tag',
+                    'active' => ['applicants', 'applicants/*'],
+                ],
+                [
+                    'text'   => 'Companies',
+                    'route'  => 'companies.index',
+                    'icon'   => 'fas fa-fw fa-building',
+                    'active' => ['companies', 'companies/*'],
+                ],
+                [
+                    'text'   => 'Modules',
+                    'route'  => 'modules.index',
+                    'icon'   => 'fas fa-fw fa-puzzle-piece',
+                    'active' => ['modules', 'modules/*'],
+                ],
+                [
+                    'text'   => 'Categories',
+                    'route'  => 'categories.index',
+                    'icon'   => 'fas fa-fw fa-tags',
+                    'active' => ['categories', 'categories/*'],
+                ],
+            ],
         ],
-        [
-            'text'   => 'Modules',
-            'route'  => 'modules.index',
-            'icon'   => 'fas fa-fw fa-puzzle-piece',
-            'active' => ['modules', 'modules/*'],
-        ],
-        [
-            'text'   => 'Categories',
-            'route'  => 'categories.index',
-            'icon'   => 'fas fa-fw fa-tags',
-            'active' => ['categories', 'categories/*'],
-        ],
-        [
-            'text'   => 'Applicants',
-            'route'  => 'applicants.index',
-            'icon'   => 'fas fa-fw fa-user-tag',
-            'active' => ['applicants', 'applicants/*'],
-        ],
-
 
 
         ['header' => 'account_settings'],
