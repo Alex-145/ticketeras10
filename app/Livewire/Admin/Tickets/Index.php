@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Livewire\Portal\Tickets;
+namespace App\Livewire\Admin\Tickets;
 
-use App\Models\Applicant;
+use App\Models\Company;
 use App\Models\Ticket;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
@@ -13,25 +13,19 @@ class Index extends Component
 {
     use WithPagination;
 
-    public string $tab = 'open'; // open | closed
-    public string $search = '';
+    public string $tab = 'open';         // open | closed
+    public string $search = '';          // título o número
     public int    $perPage = 10;
 
-    // NUEVO: filtros extra visibles para applicants
-    public string $applicantName = '';  // nombre del solicitante (de su misma compañía)
-    public ?string $closedDate = null;  // YYYY-MM-DD (aplica cuando tab=closed)
-    public ?int $companyId = null;      // bloqueado a su compañía (solo lectura en UI)
-    public ?string $companyName = null; // para mostrar en UI
-
-    public function mount()
-    {
-        $user = auth()->user();
-        $me   = Applicant::with('company:id,name')->where('user_id', $user->id)->firstOrFail();
-        $this->companyId   = $me->company_id;
-        $this->companyName = optional($me->company)->name;
-    }
+    public ?int   $companyId = null;     // filtro por compañía
+    public string $applicantName = '';   // filtro por nombre del solicitante
+    public ?string $closedDate = null;   // YYYY-MM-DD (solo aplica a 'closed')
 
     public function updatingSearch()
+    {
+        $this->resetPage();
+    }
+    public function updatingCompanyId()
     {
         $this->resetPage();
     }
@@ -47,6 +41,7 @@ class Index extends Component
     {
         $this->resetPage();
     }
+
     public function setTab(string $t)
     {
         $this->tab = in_array($t, ['open', 'closed']) ? $t : 'open';
@@ -55,24 +50,32 @@ class Index extends Component
 
     public function render()
     {
-        $user = auth()->user();
-        $me   = Applicant::select('id', 'company_id')->where('user_id', $user->id)->firstOrFail();
+        // Solo Admin / Agent (si quieres, puedes mover esto a un Policy)
+        abort_unless(auth()->user()->hasAnyRole(['admin', 'agent']), 403);
 
         $q = Ticket::query()
-            ->with(['applicant:id,name,company_id', 'applicant.company:id,name', 'module:id,name', 'category:id,name'])
-            // Solo tickets de su compañía
-            ->whereHas('applicant', fn($a) => $a->where('company_id', $me->company_id))
-            // Abiertos/Resueltos
+            ->with([
+                'applicant:id,name,company_id',
+                'applicant.company:id,name',
+                'module:id,name',
+                'category:id,name',
+            ])
+            // Abiertos / Resueltos
             ->when($this->tab === 'open', fn($w) => $w->where('status', '!=', 'done'))
             ->when($this->tab === 'closed', fn($w) => $w->where('status', 'done'))
-            // Búsqueda por número o título
+            // Búsqueda por número / título
             ->when($this->search !== '', function ($w) {
                 $term = '%' . $this->search . '%';
                 $w->where(function ($x) use ($term) {
-                    $x->where('number', 'like', $term)->orWhere('title', 'like', $term);
+                    $x->where('number', 'like', $term)
+                        ->orWhere('title', 'like', $term);
                 });
             })
-            // Filtro por nombre del solicitante (dentro de la misma compañía)
+            // Filtro por compañía (relación applicant.company)
+            ->when($this->companyId, function ($w) {
+                $w->whereHas('applicant', fn($a) => $a->where('company_id', $this->companyId));
+            })
+            // Filtro por nombre del solicitante
             ->when($this->applicantName !== '', function ($w) {
                 $term = '%' . $this->applicantName . '%';
                 $w->whereHas('applicant', fn($a) => $a->where('name', 'like', $term));
@@ -85,6 +88,8 @@ class Index extends Component
 
         $rows = $q->paginate($this->perPage);
 
-        return view('livewire.portal.tickets.index', compact('rows'));
+        $companies = Company::orderBy('name')->get(['id', 'name']);
+
+        return view('livewire.admin.tickets.index', compact('rows', 'companies'));
     }
 }

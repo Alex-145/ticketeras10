@@ -17,30 +17,75 @@ Route::middleware([
     })->name('dashboard');
 });
 
-Route::middleware(['auth', 'verified'])->group(function () {
-    Route::get('/agents', fn() => view('agents.index'))->name('agents.index');
-    Route::get('/companies', fn() => view('companies.index'))->name('companies.index');
-    Route::get('/modules', fn() => view('modules.index'))->name('modules.index');
-    Route::get('/categories', fn() => view('categories.index'))->name('categories.index');
-    Route::get('/applicants', fn() => view('applicants.index'))->name('applicants.index');
-    Route::get('/tickets', fn() => view('tickets.board'))->name('tickets.board');
+/* =========================
+   Admin/Agent: listado admin
+   ========================= */
+Route::middleware(['auth', 'verified', 'role:admin|agent'])->group(function () {
+    Route::view('/admin/tickets', 'admin.tickets.index')->name('admin.tickets.index');
 });
 
-// Portal Applicant (crear ticket)
+/* =========================
+   SOLO ADMIN: Agents
+   ========================= */
+Route::middleware(['auth', 'verified', 'role:admin'])->group(function () {
+    Route::view('/agents', 'agents.index')->name('agents.index');
+});
+
+/* =========================
+   STAFF (admin|agent): catálogos y board
+   ========================= */
+Route::middleware(['auth', 'verified', 'role:admin|agent'])->group(function () {
+    Route::view('/companies', 'companies.index')->name('companies.index');
+    Route::view('/modules', 'modules.index')->name('modules.index');
+    Route::view('/categories', 'categories.index')->name('categories.index');
+    Route::view('/applicants', 'applicants.index')->name('applicants.index');
+
+    // Board de tickets del staff
+    Route::view('/tickets', 'tickets.board')->name('tickets.board');
+});
+
+/* =========================
+   Portal Applicant
+   ========================= */
 Route::middleware(['auth', 'verified', 'role:applicant'])
     ->prefix('portal')->name('portal.')->group(function () {
-        Route::view('/tickets/create', 'portal.tickets.create')
-            ->name('tickets.create');
 
-        // Mostrar ticket (chat) para applicant
+        // LISTA
+        Route::view('/tickets', 'portal.tickets.index')->name('tickets.index');
+
+        // CREAR
+        Route::view('/tickets/create', 'portal.tickets.create')->name('tickets.create');
+
+        // CHAT / SHOW (misma compañía; opcionalmente permitir staff)
         Route::get('/tickets/{ticket}', function (Ticket $ticket) {
+            $ticket->loadMissing('applicant.company', 'module', 'category');
+
+            $user = auth()->user();
+
+            // Si quisieras permitir que un staff también entre por aquí, descomenta:
+            // if ($user->hasAnyRole(['admin','agent'])) {
+            //     return view('tickets.chat', compact('ticket'));
+            // }
+
+            // Applicant del usuario y validación de misma compañía
+            $meApplicant = \App\Models\Applicant::with('company')->where('user_id', $user->id)->first();
+            $sameCompany = $meApplicant
+                && $ticket->applicant
+                && $meApplicant->company_id
+                && $meApplicant->company_id === $ticket->applicant->company_id;
+
+            abort_unless($sameCompany, 403);
+
             return view('tickets.chat', compact('ticket'));
         })->name('tickets.show');
     });
 
-// Staff/Admin (abrir chat por fuera del portal)
-Route::middleware(['auth', 'verified'])->group(function () {
+/* =========================
+   Staff/Admin: abrir chat directo
+   ========================= */
+Route::middleware(['auth', 'verified', 'role:admin|agent'])->group(function () {
     Route::get('/tickets/{ticket}/chat', function (Ticket $ticket) {
+        $ticket->loadMissing('applicant.company', 'module', 'category');
         return view('tickets.chat', compact('ticket'));
     })->name('tickets.chat');
 });

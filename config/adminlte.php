@@ -194,7 +194,7 @@ return [
     'classes_brand' => '',
     'classes_brand_text' => '',
     'classes_content_wrapper' => '',
-    'classes_content_header' => '',
+    'classes_content_header' => 'd-none',
     'classes_content' => '',
     'classes_sidebar' => 'sidebar-dark-primary elevation-4',
     'classes_sidebar_nav' => '',
@@ -299,7 +299,7 @@ return [
     */
 
     'menu' => [
-        // Navbar items:
+        // ===== Navbar =====
         [
             'type' => 'navbar-search',
             'text' => 'search',
@@ -310,45 +310,51 @@ return [
             'topnav_right' => true,
         ],
 
-        // Sidebar items:
+        // ===== Sidebar =====
         [
             'type' => 'sidebar-menu-search',
             'text' => 'search',
         ],
+
+        // Tickets (portal del solicitante)
         [
-            'text' => 'blog',
-            'url' => 'admin/blog',
-            'can' => 'manage-blog',
+            'text'   => 'Mis Tickets',
+            'route'  => 'portal.tickets.index',
+            'icon'   => 'fas fa-fw fa-list',
+            'active' => ['portal/tickets', 'portal/tickets/*'],
+            'can'    => 'view-applicant',
         ],
+
+        // Tickets para staff
+        [
+            'text'   => 'Tickets (Admin)',
+            'route'  => 'admin.tickets.index',
+            'icon'   => 'fas fa-fw fa-table',
+            'active' => ['admin/tickets', 'admin/tickets*'],
+            'can'    => 'view-staff',
+        ],
+        [
+            'text'   => 'Tickets Board',
+            'route'  => 'tickets.board',
+            'icon'   => 'fas fa-fw fa-columns',
+            'active' => ['tickets', 'tickets/*'],
+            'can'    => 'view-staff',
+        ],
+
+        // Agents (solo admin)
         [
             'text'   => 'Agents',
             'route'  => 'agents.index',
             'icon'   => 'fas fa-fw fa-user-tie',
             'active' => ['agents', 'agents/*'],
-        ],
-        [
-            'text'   => 'My Tickets',
-            'route'  => 'portal.tickets.create',
-            'icon'   => 'fas fa-fw fa-paper-plane',
+            'can'    => 'view-admin-only',
         ],
 
+        // Catálogos (staff)
         [
-            'text' => 'pages',
-            'url' => 'admin/pages',
-            'icon' => 'far fa-fw fa-file',
-            'label' => 4,
-            'label_color' => 'success',
-        ],
-
-        [
-            'text'   => 'Tickets',
-            'route'  => 'tickets.board',
-            'icon'   => 'fas fa-fw fa-columns',
-            'active' => ['tickets', 'tickets/*'],
-        ],        // título de sección en la sidebar
-        [
-            'text'    => 'Catalogs',
+            'text'    => 'Catálogos',
             'icon'    => 'fas fa-fw fa-folder-open',
+            'can'     => 'view-staff',
             'submenu' => [
                 [
                     'text'   => 'Applicants',
@@ -376,74 +382,8 @@ return [
                 ],
             ],
         ],
-
-
-        ['header' => 'account_settings'],
-        [
-            'text' => 'profile',
-            'url' => 'admin/settings',
-            'icon' => 'fas fa-fw fa-user',
-        ],
-        [
-            'text' => 'change_password',
-            'url' => 'admin/settings',
-            'icon' => 'fas fa-fw fa-lock',
-        ],
-        [
-            'text' => 'multilevel',
-            'icon' => 'fas fa-fw fa-share',
-            'submenu' => [
-                [
-                    'text' => 'level_one',
-                    'url' => '#',
-                ],
-                [
-                    'text' => 'level_one',
-                    'url' => '#',
-                    'submenu' => [
-                        [
-                            'text' => 'level_two',
-                            'url' => '#',
-                        ],
-                        [
-                            'text' => 'level_two',
-                            'url' => '#',
-                            'submenu' => [
-                                [
-                                    'text' => 'level_three',
-                                    'url' => '#',
-                                ],
-                                [
-                                    'text' => 'level_three',
-                                    'url' => '#',
-                                ],
-                            ],
-                        ],
-                    ],
-                ],
-                [
-                    'text' => 'level_one',
-                    'url' => '#',
-                ],
-            ],
-        ],
-        ['header' => 'labels'],
-        [
-            'text' => 'important',
-            'icon_color' => 'red',
-            'url' => '#',
-        ],
-        [
-            'text' => 'warning',
-            'icon_color' => 'yellow',
-            'url' => '#',
-        ],
-        [
-            'text' => 'information',
-            'icon_color' => 'cyan',
-            'url' => '#',
-        ],
     ],
+
 
     /*
     |--------------------------------------------------------------------------
